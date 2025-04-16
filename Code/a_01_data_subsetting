@@ -1,0 +1,178 @@
+#a_01_data_subsetting
+
+#Cleaning datasets for the various requested maps
+#Working directory
+getwd()
+"/Users/alinemaybank/Desktop/StreetVendor"
+
+#Packages
+library(readr)
+library(dplyr)
+library(lubridate) 
+
+#Read in dataset
+arrest_data <- read.csv("Arrest_Data_from_2010_to_Present_YeimEDITS.csv")
+head(arrest_data)
+#237102 rows
+#Date range: 2010-01-01 --> 2019-06-22
+
+#Subset for only street vendor arrests
+arrest_data <- arrest_data %>%
+  filter(Charge == "41.45CLAMC" | grepl("VENDING|STREET VENDOR|41\\.45", Charge.Description, ignore.case = TRUE))
+#8411 x 19
+head(arrest_data)
+
+#Subset the dataset for the following populations
+#Descent.Code= races (W,B,H,O)
+unique(arrest_data$Descent.Code)
+#"H" "W" "B" "O" "A" "F" "C" "K" "J" "I" "Z" "P" "X" "G" "S" "V" "L" "U"
+
+unique(arrest_data$Charge.Description)
+# "ILLEGAL POSSESSION OF SHOPPING CART"      "HARMFUL MATTER VENDING MACHINE NEAR SCHL"
+
+# Convert Arrest.Date to Date format
+arrest_data$Arrest.Date <- as.Date(arrest_data$Arrest.Date, format = "%Y-%m-%d")
+
+# Extract the year
+arrest_data$Year <- year(arrest_data$Arrest.Date)
+
+#Subset the all race data (arrest_data) based on year - individual CSV for every year (2010-2019)
+for (yr in 2010:2019) {
+  temp_data <- filter(arrest_data, Year == yr)
+  write_csv(temp_data, paste0("All_Race_Arrests_", yr, ".csv"))}
+
+#RACE ------------------------------------------------------------------
+#Subset the dataset to only Hispanic arrests
+hispanic_data <- subset(arrest_data, Descent.Code == "H")
+#1829 rows
+
+#Subset the Hispanic data based on year - individual CSV for every year (2010-2019)
+# Subset the Hispanic dataset by year (2010-2019)
+for (yr in 2010:2019) {
+  temp_data <- filter(hispanic_data, Year == yr)
+  write_csv(temp_data, paste0("Hispanic_Arrests_", yr, ".csv"))}
+
+
+#Subset the dataset to only Black arrests
+black_data <- subset(arrest_data, Descent.Code == "B")
+#3905 rows
+
+#Subset the Black data based on year - individual CSV for every year (2010-2019)
+for (yr in 2010:2019) {
+  temp_data <- filter(black_data, Year == yr)
+  write_csv(temp_data, paste0("Black_Arrests_", yr, ".csv"))}
+
+#Subset the total dataset to Black and Hispanic
+black_hispanic_data <- arrest_data %>% filter(Descent.Code %in% c("B", "H"))
+#5734
+
+#SEX -----------------------------------------------------------
+unique(arrest_data$Sex.Code)
+#"F" "M"
+#only have female and male
+
+
+#Subset the total arrest dataset (arrest_data) for F
+female_data <- subset(arrest_data, Sex.Code == "F")
+#1348 rows
+
+#Subset the female data based on year - individual CSV for every year (2010-2019)
+for (yr in 2010:2019) {
+  temp_data <- filter(female_data, Year == yr)
+  write_csv(temp_data, paste0("Female_Arrests_", yr, ".csv"))}
+
+#Subset the total arrest dataset (arrest_data) for M
+male_data <- subset(arrest_data, Sex.Code == "M")
+#7063 rows
+
+#Subset the male data based on year - individual CSV for every year (2010-2019)
+for (yr in 2010:2019) {
+  temp_data <- filter(male_data, Year == yr)
+  write_csv(temp_data, paste0("Male_Arrests_", yr, ".csv"))}
+
+
+#Getting specific numbers
+arrest_data %>%
+  filter(Year == 2010) %>%
+  summarise(Total_Arrests = n())
+#795
+
+arrest_data %>%
+  filter(Year == 2013) %>%
+  summarise(Total_Arrests = n())
+#1665
+
+arrest_data %>%
+  filter(Year == 2014) %>%
+  summarise(Total_Arrests = n())
+#627
+
+arrest_data %>%
+  filter(Year == 2019) %>%
+  summarise(Total_Arrests = n())
+#162
+
+#Hispanic
+hispanic_data %>%
+  filter(Year == 2010) %>%
+  summarise(Total_Arrests = n())
+#200
+
+hispanic_data %>%
+  filter(Year == 2019) %>%
+  summarise(Total_Arrests = n())
+#36
+
+hispanic_data %>%
+  filter(Year == 2013) %>%
+  summarise(Total_Arrests = n())
+#348
+
+#Black
+black_data %>%
+  filter(Year == 2010) %>%
+  summarise(Total_Arrests = n())
+#279
+
+black_data %>%
+  filter(Year == 2019) %>%
+  summarise(Total_Arrests = n())
+#66
+
+black_data %>%
+  filter(Year == 2013) %>%
+  summarise(Total_Arrests = n())
+#828
+
+#SEX
+#Female
+female_data %>%
+  filter(Year == 2010) %>%
+  summarise(Total_Arrests = n())
+#120
+
+female_data %>%
+  filter(Year == 2019) %>%
+  summarise(Total_Arrests = n())
+#32
+
+female_data %>%
+  filter(Year == 2013) %>%
+  summarise(Total_Arrests = n())
+#235
+
+#Male
+male_data %>%
+  filter(Year == 2010) %>%
+  summarise(Total_Arrests = n())
+#675
+
+male_data %>%
+  filter(Year == 2019) %>%
+  summarise(Total_Arrests = n())
+#130
+
+male_data %>%
+  filter(Year == 2013) %>%
+  summarise(Total_Arrests = n())
+#1430
