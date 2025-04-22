@@ -464,3 +464,7 @@ male_data %>%
   filter(Year == 2013) %>%
   summarise(Total_Arrests = n())
 #838
+
+#Export the cleaned dataset
+# Convert to data frame
+write_csv(vendor_related_data, "vendor_related_data.csv")
