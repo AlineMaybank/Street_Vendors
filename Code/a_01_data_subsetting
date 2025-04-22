@@ -4,11 +4,16 @@
 #Working directory
 getwd()
 "/Users/alinemaybank/Desktop/StreetVendor"
+#LA MUNICIPAL LAWS
+#https://codelibrary.amlegal.com/codes/los_angeles/latest/lamc/0-0-0-128850
 
 #Packages
 library(readr)
 library(dplyr)
 library(lubridate) 
+library(ggplot2)
+install.packages("leaflet")
+library(leaflet)
 
 #Read in dataset
 arrest_data <- read.csv("Arrest_Data_from_2010_to_Present_YeimEDITS.csv")
@@ -16,163 +21,434 @@ head(arrest_data)
 #237102 rows
 #Date range: 2010-01-01 --> 2019-06-22
 
-#Subset for only street vendor arrests
-arrest_data <- arrest_data %>%
-  filter(Charge == "41.45CLAMC" | grepl("VENDING|STREET VENDOR|41\\.45", Charge.Description, ignore.case = TRUE))
-#8411 x 19
-head(arrest_data)
+#Investigate what codes to use for the subsetting to street vendors
+print(colnames(arrest_data))
+#19 columns
+#[1] "Report.ID"                "Arrest.Date"              "Time"                     "Area.ID"                 
+#[5] "Area.Name"                "Reporting.District"       "Age"                      "Sex.Code"                
+#[9] "Descent.Code"             "Charge.Group.Code"        "Charge.Group.Description" "Arrest.Type.Code"        
+#[13] "Charge"                   "Charge.Description"       "Address"                  "Cross.Street"            
+#[17] "Location"                 "Latitude"                 "Longitude"  
+
+unique(arrest_data$Charge)
+#667 different charges
+#[1] "41.45CLAMC"  "602(1)PC"    "308(A)PC"    "602(M)PC"    "555PC"       "594(B)(1)PC" "594(A)(1)PC" "594(A)(2)PC" "209(A)PC"   
+#[10] "451(D)PC"    "1203.2PC"    "646.9(B)PC"  "451.5(A)PC"  "182(A)(1)PC" "1551.1PC"    "594(A)PC"    "32PC"        "594(A)(3)PC"
+#[19] "3056PC"      "518PC"       "236PC"       "148.1(C)PC"  "273.6(D)PC"  "602PC"       "3455(A)PC"   "207(A)PC"    "209(B)(1)PC"
+#[28] "602(O)(2)PC" "602.5(A)PC"  "853.7PC"     "3454(C)PC"   "602(O)(1)PC" "594(B)2APC"  "3455(B)1PC"  "3000.08FPC"  "602(U)(1)PC"
+#[37] "3000.08CPC"  "LAMC"        "602(K)PC"    "166(A)(4)PC" "1203.2(A)PC" "602(Q)PC"    "23247(E)VC"  "45.03ALAMC"  "653M(A)PC"  
+#[46] "3455(C)PC"   "166(C)(1)PC" "1300(A)PC"   "602(O)PC"    "71.02LAMC"   "41.45(C)LAM" "10852VC"     "56.11LAMC"   "103.205BLAM"
+#[55] "272(A)(1)PC" "41.19LAMC"   "308(B)PC"    "594.3(B)PC"  "602(N)PC"    "466PC"       "63.44LAMC"   "COOR"        "777(A)WI"   
+#[64] "602.5(B)PC"  "853.5PC"     "5371PU"      "136.1(A)1PC" "451(C)PC"    "646.9(A)PC"  "63.44BLAMC"  "41.24ALAMC"  "117555HS"   
+#[73] "594.2PC"     "1871.4A2IC"  "369I(A)PC"   "374.4(A)PC"  "10853VC"     "41.24DLAMC"  "340WI"       "136.1(A)2PC" "978.5PC"    
+#[82] "979PC"       "1331PC"      "272PC"       "422PC"       "236.1(C)PC"  "42.00CLAMC"  "12.21LAMC"   "148.4(A)1PC" "339WI"      
+#[91] "148.3PC"     "45.03LAMC"   "148.5(A)PC"  "347(B)PC"    "602.8PC"     "602(D)PC"    "16240BP"     "524PC"       "597.1(A)PC" 
+#[100] "92440.5AEC"  "30474RT"     "103.102LAMC" "653PC"       "166(A)(9)PC" "148.3(A)PC"  "166(A)(1)PC" "311.1(A)PC"  "186.22(D)PC"
+#[109] "63.44B14LAM" "41.47.2LAMC" "85.02CLAMC"  "1320PC"      "71PC"        "308.1(A)PC"  "6404.5(B)LC" "602(L)PC"    "103.107BLAM"
+#[118] "594.1(E)PC"  "594.1(D)PC"  "369I(B)PC"   "16028(A)VC"  "602(T)(1)PC" "A207(A)PC"   "273.6(E)PC"  "7583.3(A)BP" "103.20LAMC" 
+#[127] "41.45LAMC"   "12680HS"     "4140BP"      "5411PU"      "103.107.1BL" "1203.3PC"    "452(B)PC"    "236.1(A)PC"  "602(H)PC"   
+#[136] "85.01LAMC"   "148.1(A)PC"  "597(A)PC"    "653W(A)PC"   "597.7(A)PC"  "337PC"       "594(B)(2)PC" "236.1(B)PC"  "594.7PC"    
+#[145] "653W(A)1PC"  "166(C)(4)PC" "186.22(A)PC" "7582.3(A)BP" "63.44B19LAM" "166(A)(5)PC" "273.6(B)PC"  "148.2PC"     "3455(A)4PC" 
+#[154] "71.02BLAMC"  "42.14LAMC"   "41.18LAMC"   "42.00LAMC"   "23112(A)VC"  "594.1(E)1PC" "42.00BLAMC"  "57.55.01LAM" "7145FG"     
+#[163] "103.205.1BL" "148.5PC"     "594.2(A)PC"  "602(J)PC"    "31VC"        "594(2)(A)PC" "171PC"       "419PC"       "210.5PC"    
+#[172] "209.5(A)PC"  "166PC"       "COMC"        "4149BPSEL"   "836.6(A)PC"  "21640BP"     "4143BP"      "41.40LAMC"   "12671HS"    
+#[181] "346PC"       "12677HS"     "80.73BLAMC"  "103.106BLAM" "7583.37CBP"  "12681HS"     "80.73LAMC"   "4476HS"      "12700HS"    
+#[190] "41.56BLAMC"  "42.02LAMC"   "7539(H)BP"   "27551HS"     "483PC"       "56.15.1LAMC" "41.49LAMC"   "57.20.22LAM" "640.6PC"    
+#[199] "555.2PC"     "103.112LAMC" "594.1(A)PC"  "374BPC"      "594.1(B)PC"  "103.202BLAM" "63.93BLAMC"  "602.8(A)PC"  "41.27ELAMC" 
+#[208] "594.1(C)PC"  "41.24CLAMC"  "7582BP"      "66.28LAMC"   "602(A)PC"    "313.1(A)PC"  "52.44LAMC"   "42.13LAMC"   "24046BP"    
+#[217] "374.3(A)PC"  "308.2(A)PC"  "374EPC"      "21.64LAMC"   "25612BP"     "80.73ALAMC"  "374.2(A)PC"  "13002(A)HS"  "166.4PC"    
+#[226] "53.28LAMC"   "640.5(A)PC"  "67.02LAMC"   "28.04LAMC"   "57.25.21BLA" "41.24BLAMC"  "66.25LAMC"   "57.25.21LAM" "53.21LAMC"  
+#[235] "640(D)(1)PC" "103.101.1LA" "63.44I12LAM" "53.06.2LAMC" "63.44ILAMC"  "556PC"       "53.34LAMC"   "597APC"      "602.5PC"    
+#[244] "12951(A)VC"  "24601VC"     "A594(B)4PC"  "40001(A)VC"  "57.25.14LAM" "24600(E)VC"  "12.27LAMC"   "554(G)PC"    "136.1(A)PC" 
+#[253] "41.23LAMC"   "42.00HLAMC"  "41.42LAMC"   "42.15LAMC"   "41.50ALAMC"  "53.55ALAMC"  "63.44FLAMC"  "63.44B17LAM" "71.03CLAMC" 
+#[262] "56.15.2LAMC" "103.112BLAM" "57.55LAMC"   "63.44I9LAMC" "56.08DLAMC"  "63.93LLAMC"  "369IPC"      "597(C)PC"    "12.24LAMC"  
+#[271] "21628BP"     "597(B)PC"    "12.21A1ALAM" "365PC"       "63.44B3LAMC" "602(F)PC"    "653M(B)PC"   "21.09LAMC"   "653U(A)PC"  
+#[280] "313.1(E)PC"  "653W(C)PC"   "313.1(C)PC"  "653WPC"      "42.19LAMC"   "375(A)PC"    "640.6(A)PC"  "80.74LAMC"   "88.11LAMC"  
+#[289] "42.04LAMC"   "41.41LAMC"   "41.38LAMC"   "374.7(A)PC"  "42.20ALAMC"  "62.80ALAMC"  "53.38LAMC"   "41.14LAMC"   "43.30LAMC"  
+#[298] "281PC"       "96.02LAMC"   "103.204BLAM" "53.24LAMC"   "63.44KLAMC"  "41800HS"     "63.44B21LAM" "63.93ILAMC"  "24603VC"    
+#[307] "21106(B)VC"  "597SPC"      "24603(B)VC"  "593PC"       "114035HS"    "63.41LAMC"   "43.17LAMC"   "12.21A1(A)L" "86.06LAMC"  
+#[316] "400PC"       "113920(A)HS" "A594(B)2PC"  "45.06LAMC"   "555.1PC"     "308B(A)PC"   "7544.6(A)BP" "594.1(A)1PC" "103.208BLAM"
+#[325] "21636(A)BP"  "12676HS"     "41.17LAMC"   "23112VC"     "45.14ALAMC"  "7582.26FBP"  "52.11LAMC"   "6071RT"      "9884.11BP"  
+#[334] "22507.8AVC"  "41.21DLAMC"  "21628(C)BP"  "640.5PC"     "42.09LAMC"   "52.55LAMC"   "41.43.1LAMC" "602(B)PC"    "597CPC"     
+#[343] "597B(B)PC"   "136.1PC"     "21628(D)BP"  "554PC"       "3700.5LC"    "103.311BLAM" "16028(C)VC"  "25177BP"     "71.00LAMC"  
+#[352] "22520.5A3VC" "7583.3(B)BP" "6071RTC"     "602(V)(1)PC" "593BPC"      "21628(G)BP"  "166(A)10PC"  "44.04LAMC"   "604PC"      
+#[361] "56.16LAMC"   "71.01LAMC"   "103.101BLAM" "597TPC"      "591PC"       "63.43LAMC"   "7583.37DBP"  "409.5(C)PC"  "41.33LAMC"  
+#[370] "602(E)PC"    "45.15LAMC"   "653L(A)PC"   "602(N)(1)PC" "603PC"       "374.3(B)PC"  "41.56ALAMC"  "602(C)PC"    "602(L)(1)PC"
+#[379] "41.29LAMC"   "4141BP"      "21636BP"     "12.14LAMC"   "53.50ALAMC"  "602(T)PC"    "103.206BLAM" "602(I)PC"    "602(U)PC"   
+#[388] "13002HS"     "436PC"       "653.2(A)PC"  "643PC"       "374.3PC"     "103.112ALAM" "383PC"       "56.30ELAMC"  "12700(B)3HS"
+#[397] "9884.9BP"    "136.1(B)1PC" "4024.2(B)PC" "452(C)PC"    "207(B)PC"    "597IPC"      "1767.3(A)WI" "777(B)WI"    "273.65(A)PC"
+#[406] "466.6(A)PC"  "594(B)4BPC"  "2012FG"      "594.3(A)PC"  "597.5(A)1PC" "186.26(C)PC" "455PC"       "602(K)(1)PC" "114175HS"   
+#[415] "148.1(B)PC"  "25189.5BHS"  "248PC"       "469PC"       "502(C)PC"    "597JPC"      "273(A)PC"    "618PC"       "520PC"      
+#[424] "418PC"       "9884.9(A)BP" "1320(A)PC"   "166(A)(2)PC" "182(A)PC"    "653X(A)PC"   "594(B)(4)PC" "777WI"       "67PC"       
+#[433] "1209CP"      "2053BP"      "2000FG"      "1320.5PC"    "136.1(B)3PC" "636.5PC"     "4148BP"      "602.7PC"     "836.6(B)PC" 
+#[442] "182(A)(4)PC" "1551(A)PC"   "148.4(A)PC"  "502(C)(2)PC" "632(A)PC"    "1052(A)FG"   "5133PU"      "646.9(C)PC"  "A455PC"     
+#[451] "67.5PC"      "457.1(H)PC"  "1823FC"      "273.6(C)3PC" "653M(C)1PC"  "626.2PC"     "519.1PC"     "20VC"        "148.1(D)PC" 
+#[460] "148.4(A)2PC" "374.8(B)PC"  "452(D)PC"    "136.1(B)2PC" "6071GRT"     "597BPC"      "653Z(A)PC"   "273.6(C)2PC" "2114UI"     
+#[469] "33211.6BPRC" "653F(B)PC"   "1320(B)PC"   "1767.3(B)WI" "186.26(A)PC" "594(B)4APC"  "25189.5CHS"  "2052BP"      "11177.1PC"  
+#[478] "496(B)PC"    "C187(A)PC"   "602(N)(2)PC" "136.1(C)2PC" "2002FG"      "2118FG"      "237(A)PC"    "273(B)PC"    "148.5(B)PC" 
+#[487] "272(B)(1)PC" "594(B)(3)PC" "148(1)PC"    "399(B)PC"    "22658(A)VC"  "34620(A)VC"  "3151WI"      "6126BP"      "653Y(A)PC"  
+#[496] "C594(A)PC"   "A209(A)PC"   "10751(A)VC"  "1209(A)5CP"  "4571PC"      "6425LC"      "A451(B)PC"   "114290HS"    "6452(C)RT"  
+#[505] "591.5PC"     "523PC"       "374CPC"      "14107.2AWI"  "587APC"      "A4532(B)PC"  "519.3PC"     "1332(A)PC"   "7027.1(A)BP"
+#[514] "C11352(A)HS" "2118.5UI"    "4532(A)1PC"  "5054.1PC"    "A597(A)PC"   "653W(B)3PC"  "42400(A)HS"  "48262EC"     "139(A)PC"   
+#[523] "A591PC"      "1332PC"      "466.7PC"     "33211.6APR"  "597B(A)PC"   "602(K)(3)PC" "1331.5PC"    "166(B)(1)PC" "11713.4VC"  
+#[532] "4532(B)1PC"  "1332(E)PC"   "453(A)PC"    "653W(B)1PC"  "311.2(A)PC"  "451PC"       "68PC"        "659PC"       "641.3(A)PC" 
+#[541] "417.25(A)PC" "102PC"       "207(D)PC"    "186.10(A)PC" "653M(C)2PC"  "3455(A)5PC"  "148(A)(2)PC" "136.1(B)PC"  "C11352HS"   
+#[550] "C11351PC"    "6326LC"      "1332(B)PC"   "137(C)PC"    "871.5(A)WI"  "7915(A)PC"   "1550.3PC"    "1991CP"      "25950(A)VC" 
+#[559] "A451(D)PC"   "C245(A)1PC"  "422.7PC"     "1808.45VC"   "457.1(I)PC"  "3454PC"      "5411HS"      "148.5(C)PC"  "4534PC"     
+#[568] "11406(A)2VC" "153.2PC"     "364PC"       "186.10A2PC"  "587BPC"      "4024.2(C)PC" "7052HS"      "1203.1PC"    "422.7(B)PC" 
+#[577] "750(A)IC"    "653J(A)PC"   "8252FG"      "853.8PC"     "1209CCP"     "587.1PC"     "11400VC"     "1737WI"      "182.1PC"    
+#[586] "11760(A)IC"  "208(B)PC"    "653.55PC"    "17920.3HS"   "420PC"       "2001FG"      "C11379.6HS"  "10854VC"     "8681FG"     
+#[595] "C484(A)PC"   "19705(A)1RT" "6201GC"      "182(A)(5)PC" "290(F)(1)PC" "A451.5(A)PC" "273GPC"      "597FPC"      "182.5PC"    
+#[604] "1871.4A4IC"  "602(W)PC"    "38318(A)VC"  "7857(D)FG"   "1370(A)1PC"  "602(L)(3)PC" "452PC"       "374.3H1PC"   "496A(A)PC"  
+#[613] "4570PC"      "30480RT"     "C487(A)PC"   "209(B)PC"    "656.1(A)HN"  "146(A)PC"    "4550.2PC"    "466.5(C)PC"  "19706(A)1RT"
+#[622] "653AA(A)PC"  "132PC"       "126PC"       "25110CC"     "653F(C)PC"   "602.4PC"     "881PC"       "466.1PC"     "4532(B)PC"  
+#[631] "871(D)WI"    "22435.11ABP" "23247(A)VC"  "653W(B)2PC"  "1203.016CPC" "10750(A)VC"  "A451(C)PC"   "23247(D)VC"  "182(A)(2)PC"
+#[640] "1175(D)LC"   "4532(A)PC"   "8101(D)HS"   "7027BP"      "6425(A)LC"   "22443BP"     "113995B1DHS" "422.6(B)PC"  "2001(A)FG"  
+#[649] "33211.6CPR"  "CVMC"        "34623(G)VC"  "522PC"       "166.1PC"     "453(B)PC"    "CUMC"        "625B(B)PC"   "273.65(D)PC"
+#[658] "369DPC"      "A594(A)1PC"  "1871.4A3IC"  "C245(A)2PC"  "A602(N)1PC"  "7850(A)FG"   "18611ELC"    "25189.6BHS"  "1203.9(A)PC"
+#[667] "653S(A)PC" 
+
+###---------------------
+###- 1. Look into each code
+###--------------------
+#Sec 42.13 Sidewalk and park vending program
+#https://codelibrary.amlegal.com/codes/los_angeles/latest/lamc/0-0-0-130544
+#Look into the unique charge codes and descriptions (command F .csv above)
+###A) Relevant with "vend" are:
+#80.73LAMC	UNLAWFUL PARKING PEDDLERS/VENDORS
+
+###B) Relevant with "sell"
+#63.44B3LAMC	ILLEGAL SELLING IN PARK
+#6071RT	SELLING W/O PERMIT
+#exclude, don;t know if street vending
+#6071RTC	SELLING WITHOUT PERMIT
+#exclude, only 1
+#4141BP	UNLIC SELL/ETC NEEDL/ETC
+#exclude, not specific and only 2
+#383PC	SELL ADULTERATED/TAINTED FOOD/ETC
+#only has 1, exclude
+#602.7PC	SELLING/PEDDLING/ETC ON RTD PROPERTY
+
+###C) Relevant with "street"
+#42.00BLAMC	ILLEGAL STREET/SIDEWALK SALES
+
+###D) Relevant with "sale"
+#42.00HLAMC	ILLEGAL SALES - FREEWAY RAMPS
+#12.21A1(A)L	ZONING ORD VIOL (OPEN-AIR SALES)
+#exclude, only 5 - not relevant
+#52.55LAMC	ILL SALE REC PROP
+#only 1 --> exclude
+#42.00BLAMC	ILLEGAL STREET/SIDEWALK SALES
+#80.73BLAMC	UNLAWFUL CATERING TRUCK SALES
+#80.73ALAMC	UNLAWFUL PARKING FOR PEDDLING/SALES
+
+###E) Relevant with "peddling"
+#42.13LAMC	PEDDLING AFTER HOURS
+#80.73ALAMC	UNLAWFUL PARKING FOR PEDDLING/SALES
+#602.7PC	SELLING/PEDDLING/ETC ON RTD PROPERTY
+
+###F) Charge codes with 42.
+#regulation of soliciting and sales in street...
+#https://codelibrary.amlegal.com/codes/los_angeles/latest/lamc/0-0-0-129818
+#42.14LAMC	SOLICIT BUS SDWK
+#don't include - about using city name
+#42.02LAMC	SOLICTIT BUS SDWK
+#42.00LAMC	SOLICIT SIDEWALK
+#42.00BLAMC	ILLEGAL STREET/SIDEWALK SALES
+#42.13LAMC	PEDDLING AFTER HOURS
+#exclude, only has 1
+#42.00HLAMC	ILLEGAL SALES - FREEWAY RAMPS
+#42.15LAMC	PEDDLING/SOLICITING ON BEACH
+#include, vending and noise
+#42.19LAMC	MISC OFFENSES
+#don't include 42.19 
+#42.04LAMC	SOLICIT BUS SDWK
+#4 observations
+#42.09LAMC	SOLICIT CUSTOMERS ON ST/SIDEWALK
+#exclude, 1 observation
+
+###FINAL LIST OF CODES BEING INCLUDED:
+#42.00BLAMC
+#42.00CLAMC
+#42.00HLAMC
+#42.00LAMC
+#42.15LAMC
+#602.7PC
+#63.44B3LAMC
+#80.73ALAMC
+#80.73BLAMC
+#80.73LAMC
+#42.13LAMC
+#42.02LAMC
+#42.04LAMC
+
+#How many records there are for each code
+# Expanded list of street vendor–related and solicitation/peddling charge codes
+vendor_related_codes <- c(
+  "42.00BLAMC","42.00CLAMC", "42.00HLAMC", "42.00LAMC", "42.15LAMC", "602.7PC",
+  "63.44B3LAMC", "80.73ALAMC", "80.73BLAMC", "80.73LAMC", "42.02LAMC",
+  "42.02LAMC", "42.04LAMC"
+)
+
+# Filter and count number of records for each code
+vendor_related_counts <- arrest_data %>%
+  filter(Charge %in% vendor_related_codes) %>%
+  group_by(Charge) %>%
+  summarise(Record_Count = n()) %>%
+  arrange(desc(Record_Count))
+
+# View the result
+print(vendor_related_counts)
+#  Charge     Record_Count
+#1 42.00BLAMC          4229
+#2 42.00LAMC            284
+#3 42.15LAMC            144
+#4 80.73LAMC             60
+#5 80.73BLAMC            52
+#6 42.00CLAMC            22
+#7 80.73ALAMC            15
+#8 42.02LAMC              8
+#9 63.44B3LAMC            8
+#10 42.00HLAMC             6
+#11 42.04LAMC              4
+#12 602.7PC                3
+#Total # of records= 4,835 
+
+
+###---------------------
+###- 2. Subset the dataset to only include the included codes
+###--------------------
+#Subset the dataset to include only vendor-related charges
+vendor_related_data <- arrest_data %>%
+  filter(Charge %in% vendor_related_codes)
+
+# View the first few rows of the filtered dataset
+head(vendor_related_data)
+
+###---------------------
+###- 3. Map them in R to make sure all points fall within LA
+###--------------------
+# Quick map plot of the arrest points
+leaflet(data = vendor_related_data) %>%
+  addTiles() %>%  # Adds the default OpenStreetMap basemap
+  addCircleMarkers(
+    lng = ~Longitude,
+    lat = ~Latitude,
+    radius = 3,
+    color = "red",
+    stroke = FALSE,
+    fillOpacity = 0.5,
+    popup = ~paste0("<strong>Charge: </strong>", Charge, "<br>",
+                    "<strong>Description: </strong>", Charge.Description, "<br>",
+                    "<strong>Location: </strong>", Location)
+  ) %>%
+  setView(lng = -118.25, lat = 34.05, zoom = 10)
+#None of the points are in the ocean
+#Most points are in LA
+# Some points are as south as Long Beach and some are as North as San Fernando
+
+###---------------------
+###- 4. Check to see if all years have data (and how much)
+###--------------------
+#Count how many arrests/year
+
+
+# Make sure Arrest.Date is a date type
+vendor_related_data$Arrest.Date <- as.Date(vendor_related_data$Arrest.Date)
+
+# Count arrests per year
+arrests_per_year <- vendor_related_data %>%
+  mutate(Year = year(Arrest.Date)) %>%
+  group_by(Year) %>%
+  summarise(Arrest_Count = n()) %>%
+  arrange(Year)
+
+# View the result
+print(arrests_per_year)
+#    Year Arrest_Count
+#1  2010         1034
+#2  2011          704
+#3  2012          834
+#4  2013         1213
+#5  2014          644
+#6  2015          287
+#7  2016           93
+#8  2017           22
+#9  2018            2
+#10  2019           2
+
+#2018 and 2019 have very low data (2 arrests)
+
+
+###---------------------
+###- 5. Look into the breakdown of the data (race and sex)
+###--------------------
+unique(arrest_data$Charge)
 
 #Subset the dataset for the following populations
 #Descent.Code= races (W,B,H,O)
+#The total dataset has
 unique(arrest_data$Descent.Code)
 #"H" "W" "B" "O" "A" "F" "C" "K" "J" "I" "Z" "P" "X" "G" "S" "V" "L" "U"
 
-unique(arrest_data$Charge.Description)
-# "ILLEGAL POSSESSION OF SHOPPING CART"      "HARMFUL MATTER VENDING MACHINE NEAR SCHL"
+#The clean dataset has
+unique(vendor_related_data$Descent.Code)
+#"B" "H" "W" "O" "A" "I" "F"
+
+unique(vendor_related_data$Charge.Description)
+# [1] "STREET-SOLICITING EMPLY OF SERVICES"  "SOLICIT SIDEWALK"                    
+#[3] "ILLEGAL STREET/SIDEWALK SALES"        "UNLAWFUL CATERING TRUCK SALES"       
+#[5] "UNLAWFUL PARKING PEDDLERS/VENDORS"    "SOLICTIT BUS SDWK"                   
+#[7] "UNLAWFUL PARKING FOR PEDDLING/SALES"  "ILLEGAL SALES - FREEWAY RAMPS"       
+#[9] "PEDDLING/SOLICITING ON BEACH"         "ILLEGAL SELLING IN PARK"             
+#[11] "SOLICIT BUS SDWK"                     "SELLING/PEDDLING/ETC ON RTD PROPERTY"
 
 # Convert Arrest.Date to Date format
-arrest_data$Arrest.Date <- as.Date(arrest_data$Arrest.Date, format = "%Y-%m-%d")
+vendor_related_data$Arrest.Date <- as.Date(vendor_related_data$Arrest.Date, format = "%Y-%m-%d")
 
 # Extract the year
-arrest_data$Year <- year(arrest_data$Arrest.Date)
+vendor_related_data$Year <- year(vendor_related_data$Arrest.Date)
 
 #Subset the all race data (arrest_data) based on year - individual CSV for every year (2010-2019)
 for (yr in 2010:2019) {
-  temp_data <- filter(arrest_data, Year == yr)
-  write_csv(temp_data, paste0("All_Race_Arrests_", yr, ".csv"))}
+  temp_data <- filter(vendor_related_data, Year == yr)
+  write_csv(temp_data, paste0("Cleaned_All_Race_Arrests_", yr, ".csv"))}
 
 #RACE ------------------------------------------------------------------
 #Subset the dataset to only Hispanic arrests
-hispanic_data <- subset(arrest_data, Descent.Code == "H")
-#1829 rows
+hispanic_data <- subset(vendor_related_data, Descent.Code == "H")
+#3686 rows
 
 #Subset the Hispanic data based on year - individual CSV for every year (2010-2019)
 # Subset the Hispanic dataset by year (2010-2019)
 for (yr in 2010:2019) {
   temp_data <- filter(hispanic_data, Year == yr)
-  write_csv(temp_data, paste0("Hispanic_Arrests_", yr, ".csv"))}
+  write_csv(temp_data, paste0("Cleaned_Hispanic_Arrests_", yr, ".csv"))}
 
 
 #Subset the dataset to only Black arrests
-black_data <- subset(arrest_data, Descent.Code == "B")
-#3905 rows
+black_data <- subset(vendor_related_data, Descent.Code == "B")
+#870 rows
 
 #Subset the Black data based on year - individual CSV for every year (2010-2019)
 for (yr in 2010:2019) {
   temp_data <- filter(black_data, Year == yr)
-  write_csv(temp_data, paste0("Black_Arrests_", yr, ".csv"))}
+  write_csv(temp_data, paste0("Cleaned_Black_Arrests_", yr, ".csv"))}
 
 #Subset the total dataset to Black and Hispanic
-black_hispanic_data <- arrest_data %>% filter(Descent.Code %in% c("B", "H"))
-#5734
+black_hispanic_data <- vendor_related_data %>% filter(Descent.Code %in% c("B", "H"))
+#4556 observations
 
 #SEX -----------------------------------------------------------
-unique(arrest_data$Sex.Code)
+unique(vendor_related_data$Sex.Code)
 #"F" "M"
 #only have female and male
 
 
 #Subset the total arrest dataset (arrest_data) for F
-female_data <- subset(arrest_data, Sex.Code == "F")
-#1348 rows
+female_data <- subset(vendor_related_data, Sex.Code == "F")
+#1591 rows
 
 #Subset the female data based on year - individual CSV for every year (2010-2019)
 for (yr in 2010:2019) {
   temp_data <- filter(female_data, Year == yr)
-  write_csv(temp_data, paste0("Female_Arrests_", yr, ".csv"))}
+  write_csv(temp_data, paste0("Cleaned_Female_Arrests_", yr, ".csv"))}
 
 #Subset the total arrest dataset (arrest_data) for M
-male_data <- subset(arrest_data, Sex.Code == "M")
-#7063 rows
+male_data <- subset(vendor_related_data, Sex.Code == "M")
+#3244 rows
 
 #Subset the male data based on year - individual CSV for every year (2010-2019)
 for (yr in 2010:2019) {
   temp_data <- filter(male_data, Year == yr)
-  write_csv(temp_data, paste0("Male_Arrests_", yr, ".csv"))}
+  write_csv(temp_data, paste0("Cleaned_Male_Arrests_", yr, ".csv"))}
 
-
+###---------------------
+###- 6. Getting specific numbers for the paper
+###--------------------
+#
 #Getting specific numbers
-arrest_data %>%
+vendor_related_data %>%
   filter(Year == 2010) %>%
   summarise(Total_Arrests = n())
-#795
+#1034
 
-arrest_data %>%
+vendor_related_data %>%
   filter(Year == 2013) %>%
   summarise(Total_Arrests = n())
-#1665
+#1213
 
-arrest_data %>%
+vendor_related_data %>%
   filter(Year == 2014) %>%
   summarise(Total_Arrests = n())
-#627
+#664
 
-arrest_data %>%
+vendor_related_data %>%
   filter(Year == 2019) %>%
   summarise(Total_Arrests = n())
-#162
+#2
 
 #Hispanic
 hispanic_data %>%
   filter(Year == 2010) %>%
   summarise(Total_Arrests = n())
-#200
+#758
 
 hispanic_data %>%
   filter(Year == 2019) %>%
   summarise(Total_Arrests = n())
-#36
+#1
 
 hispanic_data %>%
   filter(Year == 2013) %>%
   summarise(Total_Arrests = n())
-#348
+#985
 
 #Black
 black_data %>%
   filter(Year == 2010) %>%
   summarise(Total_Arrests = n())
-#279
+#195
 
 black_data %>%
   filter(Year == 2019) %>%
   summarise(Total_Arrests = n())
-#66
+#1
 
 black_data %>%
   filter(Year == 2013) %>%
   summarise(Total_Arrests = n())
-#828
+#177
 
 #SEX
 #Female
 female_data %>%
   filter(Year == 2010) %>%
   summarise(Total_Arrests = n())
-#120
+#347
 
 female_data %>%
   filter(Year == 2019) %>%
   summarise(Total_Arrests = n())
-#32
+#0
 
 female_data %>%
   filter(Year == 2013) %>%
   summarise(Total_Arrests = n())
-#235
+#375
 
 #Male
 male_data %>%
   filter(Year == 2010) %>%
   summarise(Total_Arrests = n())
-#675
+#687
 
 male_data %>%
   filter(Year == 2019) %>%
   summarise(Total_Arrests = n())
-#130
+#2
 
 male_data %>%
   filter(Year == 2013) %>%
   summarise(Total_Arrests = n())
-#1430
+#838
