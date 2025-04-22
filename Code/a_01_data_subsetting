@@ -247,6 +247,18 @@ leaflet(data = vendor_related_data) %>%
 #Most points are in LA
 # Some points are as south as Long Beach and some are as North as San Fernando
 
+#Check for missing data
+# Check for missing values in Latitude and Longitude
+vendor_related_data %>%
+  summarise(
+    Missing_Lat = sum(is.na(Latitude)),
+    Missing_Lon = sum(is.na(Longitude)),
+    Total_Rows = n()
+  )
+#  Missing_Lat Missing_Lon Total_Rows
+#           0           0       4835
+#There is no missing data
+
 ###---------------------
 ###- 4. Check to see if all years have data (and how much)
 ###--------------------
