@@ -1,0 +1,555 @@
+---
+title: "StreetVendor_Data_Cleaning_Processing"
+author: "Aline Maybank"
+date: "2025-08-11"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setting Up
+
+## Install packages
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+library(readxl)
+library(dplyr)
+library(janitor)
+library(tidyr)
+library(readr)
+library(leaflet)
+library(sf)
+```
+
+
+## Read in data
+
+### LA Police Department
+
+The dataset we are using for this analysis from the LA Police Department
+
+Dataset contains: all crimes that occurred in Los Angeles from 01-01-2010 to 06-22-2019
+
+```{r, warning=FALSE, message=FALSE}
+LA_crime <- read_csv("Arrest_Data_from_2010_to_Present_YeimEDITS.csv")
+
+dim(LA_crime)
+```
+Explore LA_crime data
+
+```{r, warning=FALSE, message=FALSE}
+colnames(LA_crime)
+```
+
+### LA TACO Dataset
+The LA TACO dataset is a pre-cleaned, street-vendor specific dataset that the City of LA put together and released to the public. Journalists have used this dataset. The dataset includes street vending arrests in Los Angeles by any Agency and includes the codes:
+80.73, 63.44, 42.00 & 7.62
+The dataset goes from 01/01/2010 - 12/31/2018
+```{r, warning=FALSE, message=FALSE}
+LA_TACO <- read_excel("19-5330, Copy of STREET VEND ARSTS 010110 123119.xlsx")
+
+dim(LA_TACO)
+```
+
+
+## Investigate Charge Codes
+
+### Unique charge codes
+Compare how many unique charge codes are in LA_crimes vs LA_TACO
+
+```{r, warning=FALSE, message=FALSE}
+# Clean up column names just in case
+LA_crime <- janitor::clean_names(LA_crime)
+LA_TACO <- janitor::clean_names(LA_TACO)
+#Janitor standardizes column names by:
+#Converting them to lowercase
+#Replacing spaces and punctuation with underscores
+#Removing special characters
+
+# View the names to find the relevant charge code columns
+colnames(LA_crime)
+colnames(LA_TACO)
+
+# Count unique charge codes
+unique_crime_codes <- n_distinct(LA_crime$charge, na.rm = TRUE)
+unique_taco_codes <- n_distinct(LA_TACO$arst_chrg_cd, na.rm = TRUE)
+
+# Print results
+cat("Number of unique charge codes in LA_crime:", unique_crime_codes, "\n")
+cat("Number of unique charge codes in LA_TACO:", unique_taco_codes, "\n")
+```
+Table of overlapping charge codes
+```{r, warning=FALSE, message=FALSE}
+# Extract unique codes from each dataset
+crime_codes <- unique(LA_crime$charge)
+taco_codes <- unique(LA_TACO$arst_chrg_cd)
+
+# Find the intersection
+shared_codes <- intersect(crime_codes, taco_codes)
+
+# Convert to data frame for display
+shared_codes_df <- data.frame(shared_charge_codes = shared_codes)
+
+#All of the codes that are found in both datasets will be included in our analysis
+# Display the table
+knitr::kable(shared_codes_df, caption = "Charge Codes Found in Both LA_crime and LA_TACO")
+```
+
+### Additional charge codes to include
+
+Based on reviewing all of the charge codes in the LA_crime dataset and municipal codes, there are 4 other charge codes that may be relevant to street vending
+```{r, warning=FALSE, message=FALSE}
+#42.15LAMC
+#42.02LAMC
+#42.04LAMC
+#602.7PC
+
+# Define the list of charge codes to inspect
+additional_codes <- c("42.15LAMC", "42.02LAMC", "42.04LAMC", "602.7PC")
+
+# Filter LA_crime for those codes
+extra_codes_df <- LA_crime %>%
+  filter(charge %in% additional_codes) %>%
+  select(charge, charge_description) %>%
+  distinct()
+
+# Display the table
+knitr::kable(extra_codes_df, caption = "Descriptions of Additional Street Vending-Related Charge Codes in LA_crime")
+```
+
+## Included charge codes
+
+List specific charge codes we are including
+
+Charge codes were included if they were in the LA TACO dataset AND had a charge description associated with it. 
+
+Charge codes in the LA TACO dataset WITHOUT a description are not even present in our police data with geolocations.
+
+We also included those 4 specific charge codes above that are NOT in LA TACO but are relevant to street vendors.
+```{r, warning=FALSE, message=FALSE}
+# Define the charge codes to keep
+relevant_codes <- c(
+"63.44B14LAM", "63.44B17LAM", "63.44B19LAM",
+"63.44B21LAM", "63.44B3LAMC", "63.44BLAMC",
+"63.44FLAMC", "63.44I12LAM", "63.44I9LAMC",
+"63.44ILAMC", "63.44KLAMC", "63.44LAMC",
+"42.00BLAMC", "42.00CLAMC", "42.00HLAMC",
+"42.00LAMC", "80.73ALAMC", "80.73BLAMC",
+"80.73LAMC", "42.15LAMC", "42.02LAMC",
+"42.04LAMC", "602.7PC"
+)
+
+# Create a cleaned version of LA_crime with only the relevant charges
+LA_crime_clean <- LA_crime %>%
+  filter(charge %in% relevant_codes)
+
+dim(LA_crime_clean)
+```
+
+Count crime occurrences per charge code
+
+```{r, warning=FALSE, message=FALSE}
+filtered_charges_summary <- LA_crime_clean %>%
+  filter(charge %in% relevant_codes) %>%
+  group_by(charge, charge_description) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(desc(count))
+
+# Display the result
+knitr::kable(filtered_charges_summary, caption = "Filtered LA Crime Charges with Descriptions and Counts")
+```
+
+# Data Cleaning
+
+Now, that the dataset only includes charge codes relevant to street vending, we can clean the data.
+
+Some specific elements to review are: invalid lat/lon, over-reporting at police stations, detention centers, and hospitals.
+
+## 1. Review lat/long
+
+1. Exclude any lat/long that are outside of 
+```{r, warning=FALSE, message=FALSE}
+#1. Exclude any lat/long that are outside of 
+# 1. Count missing or empty lat/lon
+invalid_coords_summary <- LA_crime_clean %>%
+  mutate(
+    lat_missing = is.na(latitude) | latitude == 0,
+    lon_missing = is.na(longitude) | longitude == 0
+  ) %>%
+  summarise(
+    missing_lat = sum(lat_missing),
+    missing_lon = sum(lon_missing),
+    total_missing_or_zero = sum(lat_missing | lon_missing)
+  )
+
+#There are no invalid coords
+knitr::kable(invalid_coords_summary, caption = "Missing or Zero Latitude/Longitude Summary")
+```
+
+## 2. Review repeated report_id
+2. Investigate if there are any repeats in report_id
+
+```{r, warning=FALSE, message=FALSE}
+# Count how many report_id values are duplicated
+num_duplicates <- LA_crime_clean %>%
+  summarise(duplicate_count = sum(duplicated(report_id)))
+
+knitr::kable(num_duplicates, caption = "Number of Duplicate report_id Values")
+
+# Extract rows with duplicated report_id
+duplicate_reports <- LA_crime_clean %>%
+  filter(duplicated(report_id) | duplicated(report_id, fromLast = TRUE)) %>%
+  arrange(report_id)
+
+#There are no repeats in report_id
+```
+
+## 3. Report crime placement
+
+2 Mapping Tasks: Map the crimes in LA county and city
+
+Use OpenStreetMap to ensure that all of the crimes fall within the LA region
+```{r, warning=FALSE, message=FALSE}
+# Create leaflet map with LA crime locations
+leaflet(data = LA_crime_clean) %>%
+  addProviderTiles(providers$OpenStreetMap) %>%
+  addCircleMarkers(
+    lng = ~longitude,
+    lat = ~latitude,
+    radius = 2,
+    color = "red",
+    stroke = FALSE,
+    fillOpacity = 0.5
+  ) %>%
+  setView(lng = -118.25, lat = 34.05, zoom = 11) %>%
+  addLegend("bottomright", colors = "red", labels = "Street Vendor Arrests", title = "Arrest Location")
+
+#It appears that all of the street vendors are falling within LA boundaries
+
+```
+
+## 3.A LA county shapefile and crime
+
+Add LA county shapefile to the map code
+
+```{r, warning=FALSE, message=FALSE}
+# Read shapefile
+la_boundary <- st_read("laCounty.shape files/laCounty.shp")
+
+# Transform to WGS84 if needed
+la_boundary <- st_transform(la_boundary, crs = 4326)
+
+
+leaflet(data = LA_crime_clean) %>%
+  addProviderTiles(providers$OpenStreetMap) %>%
+  
+  # Add LA County boundary
+  addPolygons(
+    data = la_boundary,
+    color = "black",
+    weight = 3,
+    fill = FALSE,
+    group = "LA County Boundary"
+  ) %>%
+  
+  # Add points
+  addCircleMarkers(
+    lng = ~longitude,
+    lat = ~latitude,
+    radius = 2,
+    color = "red",
+    stroke = FALSE,
+    fillOpacity = 0.5,
+    group = "Street Vendor Arrests"
+  ) %>%
+  
+  setView(lng = -118.25, lat = 34.05, zoom = 11) %>%
+  
+  addLegend("bottomright", colors = "red", labels = "Street Vendor Arrests", title = "Arrest Location") %>%
+  
+  addLayersControl(
+    overlayGroups = c("Street Vendor Arrests", "LA County Boundary"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+#The LA shapefile is not exact enough, and cuts off some incidences of crime that occur at points, within LA city limits. But, are cut of by the shapefile, which does not bend the same way as the actual land does.
+
+```
+
+## 3.B LA city shapefile and crime
+
+Add LA city shapefile to the map code
+```{r, warning=FALSE, message=FALSE}
+# Read shapefile
+la_city_boundary <- st_read("City_Boundary/City_Boundary.shp")
+
+# Transform to WGS84 if needed
+la_city_boundary <- st_transform(la_city_boundary, crs = 4326)
+
+
+leaflet(data = LA_crime_clean) %>%
+  addProviderTiles(providers$OpenStreetMap) %>%
+  
+  # Add LA County boundary
+  addPolygons(
+    data = la_city_boundary,
+    color = "black",
+    weight = 2,
+    fill = FALSE,
+    group = "LA City Boundary"
+  ) %>%
+  
+  # Add points
+  addCircleMarkers(
+    lng = ~longitude,
+    lat = ~latitude,
+    radius = 2,
+    color = "red",
+    stroke = FALSE,
+    fillOpacity = 0.5,
+    group = "Street Vendor Arrests"
+  ) %>%
+  
+  setView(lng = -118.25, lat = 34.05, zoom = 11) %>%
+  
+  addLegend("bottomright", colors = "red", labels = "Street Vendor Arrests", title = "Arrest Location") %>%
+  
+  addLayersControl(
+    overlayGroups = c("Street Vendor Arrests", "LA City Boundary"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+```
+
+The LA city shapefile fits the majority of the crimes, but there are some arrests that fall outside of the shapefile's area (31 arrests). So, I will remove the arrests that fall outside the city area since the area for this spatial analysis is the city of Los Angeles.
+
+Remove the arrest data that fall outside the LA city shapefile
+```{r, warning=FALSE, message=FALSE}
+## --- Build a clean city boundary geometry ---
+la_city_boundary_valid <- la_city_boundary %>%
+  sf::st_make_valid() %>%
+  sf::st_union()
+
+## --- Convert arrests to sf points ---
+LA_crime_pts <- LA_crime_clean %>%
+  filter(!is.na(longitude), !is.na(latitude)) %>%
+  sf::st_as_sf(coords = c("longitude", "latitude"), crs = 4326, remove = FALSE)
+
+## --- Flag points inside boundary ---
+inside_city <- lengths(sf::st_within(LA_crime_pts, la_city_boundary_valid)) > 0
+
+## --- Table of arrests OUTSIDE LA city limits ---
+outside_sf <- LA_crime_pts[!inside_city, ]
+
+cols_to_show <- intersect(
+  c("report_id", "arrest_date", "charge", "charge_description", "latitude", "longitude"),
+  names(outside_sf)
+)
+
+outside_tbl <- outside_sf %>%
+  sf::st_drop_geometry() %>%
+  select(all_of(cols_to_show)) %>%
+  arrange(arrest_date)
+
+# Optional summary
+outside_summary <- outside_sf %>%
+  sf::st_drop_geometry() %>%
+  count(charge, charge_description, name = "n") %>%
+  arrange(desc(n))
+
+# Preview in knitted doc
+knitr::kable(head(outside_tbl, 25), caption = "Arrests Outside LA City Limits (preview)")
+knitr::kable(outside_summary, caption = "Counts by Charge for Arrests Outside LA City Limits")
+
+# Save to CSV if desired
+readr::write_csv(outside_tbl, "arrests_outside_LA_city_limits.csv")
+readr::write_csv(outside_summary, "arrests_outside_LA_city_limits_by_charge.csv")
+
+cat("Total arrests outside LA city limits:", nrow(outside_tbl), "\n")
+
+# Keep only points INSIDE LA city boundary
+LA_crime_clean <- LA_crime_pts[inside_city, ] %>%
+  sf::st_drop_geometry()
+
+dim(LA_crime_clean)
+```
+
+Now, the cleaned arrest dataset has 11,009 arrests over the study period.
+
+## 4. Review top 10 lat/long
+
+4. Review the location of the most frequent lat/long
+
+The top 10 lat/long are reviewed to ensure that they are not at police departments, hospitals, detention centers, etc. This is because sometimes, if police don't know/didn't write where the crime occurred, they write the police department (or others), which does not actually represent where the crime occurred. Thus, regions with a police department appear to high high crime counts, while it might actually be the police department acting as an outlier.
+
+Top 10 Most Frequent Latitude/Longitude Coordinates
+```{r, , warning=FALSE, message=FALSE}
+# Count and rank the most frequent coordinate pairs
+top_locations <- LA_crime_clean %>%
+  group_by(latitude, longitude) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  arrange(desc(n)) %>%
+  slice_head(n = 10)
+
+# Display the result
+knitr::kable(top_locations, caption = "Top 10 Most Frequent Latitude/Longitude Locations in LA_crime_clean")
+```
+
+I Google searched where all of the lat/long are to ensure that they aren't police stations or detention centers, since that could unintentionally skew arrest hotspots.
+```{r, warning=FALSE, message=FALSE}
+#latitude	      longitude     	n
+#34.2905	  -118.5455	          976
+#Residential --> Keep
+
+#34.0601	    -118.2761	        279
+#Near a park --> Keep
+
+#34.2871    	-118.4614	        248
+#Big street --> Keep
+
+#34.1852	    -118.4837	        187
+#Big street --> Keep
+
+#34.1649    	-118.3790	        172
+#Big street --> Keep
+
+#34.0580	    -118.2759       	151
+#Near a park --> Keep
+
+#34.0596	    -118.2749	        141
+#Street --> Keep
+
+#34.0423	    -118.2666	        115
+#Building area --> Keep
+
+#34.1016	    -118.3387	        106
+#Street --> Keep
+
+#34.1796	    -118.4820	         93
+#Street --> Keep 
+```
+
+## 5. Review times
+
+5. Review that the time is correct
+
+Make sure that all the time is between 1 and 24 (hours in the day), and review any NAs. Any arrests with no time associated (NA) are removed.
+```{r}
+summary(LA_crime_clean$time)
+
+# Remove rows with NA in time column
+LA_crime_clean <- LA_crime_clean %>%
+  filter(!is.na(time))
+
+dim(LA_crime_clean)
+```
+
+## 6. Review dates
+6. Review that date is correct
+
+Make sure that all of the time was between 2010 and 2019. Make sure there are no NAs - remove any NAs.
+```{r}
+#Check date range and presence of NAs
+summary(LA_crime_clean$arrest_date)
+
+LA_crime_clean <- LA_crime_clean %>%
+  filter(!is.na(arrest_date))
+
+dim(LA_crime_clean)
+```
+
+Exclude 2019 data because the year does not have complete data (we only have the first few months of data for 2019).
+
+Now, the study time period= Jan 1st, 2010 to Dec 31st, 2018.
+```{r}
+# Ensure arrest_date is in Date format (in case it's not already)
+LA_crime_clean$arrest_date <- as.Date(LA_crime_clean$arrest_date)
+
+# Filter to exclude 2019 and remove NAs
+LA_crime_clean <- LA_crime_clean %>%
+  filter(!is.na(arrest_date) & arrest_date <= as.Date("2018-12-31"))
+
+# Check the new dimensions
+dim(LA_crime_clean)
+
+# Confirm final date range
+summary(LA_crime_clean$arrest_date)
+
+```
+
+Print out the final cleaned charge code, description and arrest counts.
+```{r, warning=FALSE, message=FALSE}
+final_summary <- LA_crime_clean %>%
+  count(charge, charge_description, name = "count") %>%
+  arrange(desc(count))
+
+knitr::kable(
+  final_summary,
+  caption = "Final Cleaned Street Vendor-Related Charges with Descriptions and Counts"
+)
+```
+
+## 7. Map the Clean Data
+```{r, warning=FALSE, message=FALSE}
+# make sure boundary is valid + EPSG:4326
+la_city_boundary_valid <- la_city_boundary %>%
+  sf::st_make_valid() %>%
+  sf::st_transform(4326) %>%
+  sf::st_union()
+
+leaflet(data = LA_crime_clean) %>%
+  addProviderTiles(providers$OpenStreetMap) %>%
+  addPolygons(
+    data = la_city_boundary_valid,
+    color = "black",
+    weight = 2,
+    fill = FALSE,
+    group = "LA City Boundary"
+  ) %>%
+  addCircleMarkers(
+    lng = ~longitude,
+    lat = ~latitude,
+    radius = 2,
+    color = "red",
+    stroke = FALSE,
+    fillOpacity = 0.5,
+    group = "Street Vendor Arrests"
+  ) %>%
+  setView(lng = -118.25, lat = 34.05, zoom = 11) %>%
+  addLegend("bottomright", colors = "red", labels = "Street Vendor Arrests", title = "Arrest Location") %>%
+  addLayersControl(
+    overlayGroups = c("Street Vendor Arrests", "LA City Boundary"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+```
+
+In total, there are 10,852 arrests included in the analysis from 2010-2018.
+
+Export cleaned dataset
+```{r}
+# Export the cleaned dataset to CSV
+write_csv(LA_crime_clean, "LA_crime_cleaned_street_vendors.csv")
+```
+
+
+# Data Exploration
+I will continue data exploration in the next script.
+
+## Arrests per Year per Charge Code
+```{r}
+# Extract year from arrest_date
+LA_crime_clean <- LA_crime_clean %>%
+  mutate(arrest_year = lubridate::year(arrest_date))
+
+# Create summary table: charge code by year
+charges_by_year <- LA_crime_clean %>%
+  group_by(charge, arrest_year) %>%
+  summarise(n_crimes = n(), .groups = "drop") %>%
+  pivot_wider(names_from = arrest_year, values_from = n_crimes, values_fill = 0)
+
+# Display table
+knitr::kable(charges_by_year, caption = "Number of Crimes per Year by Charge Code")
+```
