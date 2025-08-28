@@ -1,0 +1,257 @@
+---
+title: "StreetVendor_LA_IndexofExtremes_Maps"
+author: "Aline Maybank"
+date: "2025-07-28"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# ICE Calculation for Los Angeles
+Purpose: Calculate Index of Concentration of Extremes (ICE) metrics (race, income, and race and income combined) at census tract level using tidycensus and ACS 2023 5-year data.
+
+Background: The Index of Concentration at the Extremes (ICE) is a public health metric that measures the extent to which a geographic area's population is concentrated in the most deprived or most privileged groups within a given distribution, such as income or race.
+
+With this data, we can review what neighborhoods (census tracts) are more "advantaged" compared to "disadvantaged". This information can help us understand demographic information (race, income, and combined race and income) of census tracts within the city of LA.
+
+
+## 1. Seting Up
+### 1.2 Load packages
+Ensure that packages are installed and loaded
+```{r, message=FALSE, warning=FALSE}
+# Load Libraries
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(tigris)
+library(sf)
+library(tidycensus)
+library(ggmap)
+library(purrr)
+library(viridis)
+library(leaflet)
+library(RColorBrewer)
+library(readxl)
+```
+
+#### 1.2 Set API Key
+Each coder must use their own census API key 
+```{r}
+#Get your own US census API key from: https://api.census.gov/data/key_signup.html
+#census_api_key("INSERT KEY HERE", install = TRUE, overwrite = TRUE)
+```
+
+```{r, include=FALSE}
+census_api_key("5db8c2f627f000b2b811e2b9974c41d598600881", install = TRUE, overwrite = TRUE)
+```
+
+## 2. Data Preparation
+### 2.1 Define Variables
+Load 2023 ACS 5-year variable names
+```{r, message=FALSE, warning=FALSE}
+v23 <- load_variables(2023, "acs5", cache = TRUE)
+
+vars_to_req <- c(
+  # Totals for denominators
+  total_pop                = "B03002_001",  # total population (race/ethnicity table)
+  total_pop_income         = "B19001_001",  # total households (income table)
+
+  # Race (components)
+  non_hisp_black_population = "B03002_004",
+  hispanic_population       = "B03002_012",
+  non_hisp_white_population = "B03002_003",
+
+  # Income (bins for <60k and >=125k)
+  less_than_60k_income1  = "B19001_002",
+  less_than_60k_income2  = "B19001_003",
+  less_than_60k_income3  = "B19001_004",
+  less_than_60k_income4  = "B19001_005",
+  less_than_60k_income5  = "B19001_006",
+  less_than_60k_income6  = "B19001_007",
+  less_than_60k_income7  = "B19001_008",
+  less_than_60k_income8  = "B19001_009",
+  less_than_60k_income9  = "B19001_010",
+  less_than_60k_income10 = "B19001_011",
+  more_than_125k_income1 = "B19001_015",
+  more_than_125k_income2 = "B19001_016",
+  more_than_125k_income3 = "B19001_017",
+
+  # Combined (race x income components)
+  # Black HHs < $60k
+  black_less_than_60k_combined1  = "B19001B_002",
+  black_less_than_60k_combined2  = "B19001B_003",
+  black_less_than_60k_combined3  = "B19001B_004",
+  black_less_than_60k_combined4  = "B19001B_005",
+  black_less_than_60k_combined5  = "B19001B_006",
+  black_less_than_60k_combined6  = "B19001B_007",
+  black_less_than_60k_combined7  = "B19001B_008",
+  black_less_than_60k_combined8  = "B19001B_009",
+  black_less_than_60k_combined9  = "B19001B_010",
+  black_less_than_60k_combined10 = "B19001B_011",
+
+  # Hispanic HHs < $60k
+  hispanic_less_than_60k_combined1  = "B19001I_002",
+  hispanic_less_than_60k_combined2  = "B19001I_003",
+  hispanic_less_than_60k_combined3  = "B19001I_004",
+  hispanic_less_than_60k_combined4  = "B19001I_005",
+  hispanic_less_than_60k_combined5  = "B19001I_006",
+  hispanic_less_than_60k_combined6  = "B19001I_007",
+  hispanic_less_than_60k_combined7  = "B19001I_008",
+  hispanic_less_than_60k_combined8  = "B19001I_009",
+  hispanic_less_than_60k_combined9  = "B19001I_010",
+  hispanic_less_than_60k_combined10 = "B19001I_011",
+
+  # Non-Hisp White HHs >= $125k
+  white_more_than_125k_combined1 = "B19001H_015",
+  white_more_than_125k_combined2 = "B19001H_016",
+  white_more_than_125k_combined3 = "B19001H_017"
+)
+```
+
+### 2.2 Download and Transform ACS Data
+Function to pull and process ICE data
+```{r, message=FALSE, warning=FALSE, results='hide'}
+#LA-specific information
+state_abbr <- "CA"
+county <- "Los Angeles"
+
+LA_raw_data <- get_acs(
+  geography = "tract",
+  variables = vars_to_req,
+  state = "CA",
+  county = "Los Angeles",
+  year = 2023,
+  survey = "acs5",
+  geometry = TRUE
+)
+
+# Get LA city boundary and match CRS to the tracts
+la_city <- tigris::places(state = "CA", year = 2023, class = "sf") %>%
+  dplyr::filter(NAME == "Los Angeles") %>%
+  sf::st_make_valid() %>%
+  sf::st_transform(sf::st_crs(LA_raw_data))
+
+# Centroid-in-polygon filter
+tract_centroids <- sf::st_centroid(sf::st_geometry(LA_raw_data))
+inside <- sf::st_within(tract_centroids, la_city, sparse = FALSE)[, 1]
+
+LA_raw_data_city <- LA_raw_data[inside, ]
+
+# Pivot wide
+LA_acs_wide <- LA_raw_data_city %>%
+  dplyr::select(GEOID, NAME, variable, estimate, geometry) %>%
+  tidyr::pivot_wider(names_from = variable, values_from = estimate)
+```
+
+### 2.3 Calculate ICE Metrics
+Use ICE equation to calculate index values
+```{r, message=FALSE, warning=FALSE}
+# helper for safe division
+safe_div <- function(num, den) ifelse(is.na(den) | den == 0, NA_real_, num / den)
+
+LA_ice <- LA_acs_wide %>%
+  mutate(
+    # Components
+    low_income  = rowSums(across(starts_with("less_than_60k_income")), na.rm = TRUE),
+    high_income = rowSums(across(starts_with("more_than_125k_income")), na.rm = TRUE),
+
+    low_income_black     = rowSums(across(starts_with("black_less_than_60k_combined")), na.rm = TRUE),
+    low_income_hispanic  = rowSums(across(starts_with("hispanic_less_than_60k_combined")), na.rm = TRUE),
+    high_income_white_nh = rowSums(across(starts_with("white_more_than_125k_combined")), na.rm = TRUE),
+
+    # Denominators
+    den_race   = total_pop,        # B03002_001
+    den_income = total_pop_income, # B19001_001
+
+    # ICE metrics (privileged - deprived) / TOTAL POPULATION
+    ICE_race = safe_div(
+      non_hisp_white_population - (non_hisp_black_population + hispanic_population),
+      den_race
+    ),
+
+    ICE_income = safe_div(
+      high_income - low_income,
+      den_income
+    ),
+
+    ICE_combined = safe_div(
+      high_income_white_nh - (low_income_black + low_income_hispanic),
+      den_income
+    )
+  ) %>%
+  select(GEOID, NAME, geometry, ICE_race, ICE_income, ICE_combined)
+```
+
+## 3. Visualizations 
+### 3.1 LA - ICE Maps
+Create LA ICE maps for race, income, and race and income combined across census tracts
+```{r, warning=FALSE}
+# ICE Race Map
+ggplot(LA_ice) +
+  geom_sf(aes(fill = ICE_race), color = NA) +
+  scale_fill_viridis(option = "cividis", na.value = "lightgrey", direction = 1) +
+  labs(title = "LA ICE – Race (by Tract)", fill = "ICE Race") +
+  theme_minimal()
+
+# ICE Income Map
+ggplot(LA_ice) +
+  geom_sf(aes(fill = ICE_income), color = NA) +
+  scale_fill_viridis(option = "viridis", na.value = "lightgrey", direction = 1) +
+  labs(title = "LA ICE – Income (by Tract)", fill = "ICE Income") +
+  theme_minimal()
+
+# ICE Combined Map
+ggplot(LA_ice) +
+  geom_sf(aes(fill = ICE_combined), color = NA) +
+  scale_fill_viridis(option = "rocket", na.value = "lightgrey", direction = 1) +
+  labs(title = "LA ICE – Race & Income Combined (by Tract)", fill = "ICE Combined") +
+  theme_minimal()
+```
+
+#### 3.2 Investigate GEOIDs with NAs
+Determine why some census tracts have NAs
+```{r}
+LA_ICE_na=LA_ice %>%
+  filter(is.na(ICE_income) | is.na(ICE_combined)) %>%
+  select(GEOID, NAME, ICE_race, ICE_income, ICE_combined)
+
+print(LA_ICE_na)
+```
+
+### 3.3 Add ICE quartiles
+For simpler visual interpretation, group ICE values into four groups
+```{r}
+# Add quartile bins
+LA_ice <- LA_ice %>%
+  mutate(
+    ICE_race_q = cut(ICE_race,
+                     breaks = c(-1, -0.5, 0, 0.5, 1),
+                     labels = c(1, 2, 3, 4),
+                     include.lowest = TRUE,
+                     right = FALSE),
+    
+    ICE_income_q = cut(ICE_income,
+                       breaks = c(-1, -0.5, 0, 0.5, 1),
+                       labels = c(1, 2, 3, 4),
+                       include.lowest = TRUE,
+                       right = FALSE),
+    
+    ICE_combined_q = cut(ICE_combined,
+                         breaks = c(-1, -0.5, 0, 0.5, 1),
+                         labels = c(1, 2, 3, 4),
+                         include.lowest = TRUE,
+                         right = FALSE)
+  )
+
+table(LA_ice$ICE_combined_q)
+```
+
+## 4. Save the output datasetˆ
+Save dataset as a CSV for future use
+```{r, warning=FALSE}
+# Save CSV version (drop geometry)
+write.csv(st_drop_geometry(LA_ice), 
+          paste0("ICE_LA_", Sys.Date(), ".csv"), 
+          row.names = FALSE)
+```
