@@ -1,0 +1,578 @@
+---
+title: "StreetVendor_Data_Analysis"
+author: "Aline Maybank"
+date: "2025-08-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setting Up
+
+## Install packages
+```{r, warning=FALSE, message=FALSE}
+library(readr)
+library(dplyr)
+library(lubridate)
+library(glue)
+library(tidyr)
+library(ggplot2)
+library(viridis)
+library(ggpubr)
+```
+
+## Read in data
+
+### Cleaned LA Crime dataset
+This dataset was previously created by the cleaning steps in the script: StreetVendor_Data_Cleaning_Processing.
+
+```{r, warning=FALSE, message=FALSE}
+# Read in the cleaned crime dataset
+LA_crime_clean <- read_csv("LA_crime_cleaned_street_vendors.csv")
+
+dim(LA_crime_clean)
+```
+
+# Data Exploration
+
+## Review column names
+```{r}
+colnames(LA_crime_clean)
+```
+## Descent Code
+### Review: Descent code
+```{r}
+unique(LA_crime_clean$descent_code)
+
+#H=Hispanic
+#O=Other
+#W=White
+#B=Black
+#A=Other Asian
+#I=American Indian/Alaskan Native
+#F=Filipino 
+#X=Unknown
+#K=Korean
+#C=Chinese
+```
+
+#### Counts
+Counts of descent codes
+```{r}
+# Add a year column
+LA_crime_clean <- LA_crime_clean %>%
+  mutate(year = year(as.Date(arrest_date, format = "%Y-%m-%d")))
+
+# Count per descent_code per year
+descent_counts <- LA_crime_clean %>%
+  group_by(year, descent_code) %>%
+  summarise(count = n(), .groups = "drop")
+
+# Total arrests per year
+yearly_totals <- LA_crime_clean %>%
+  group_by(year) %>%
+  summarise(total_arrests = n())
+
+# Join and calculate percentage
+descent_percentages <- descent_counts %>%
+  left_join(yearly_totals, by = "year") %>%
+  mutate(percent = round(100 * count / total_arrests, 2))
+
+# View the result
+knitr::kable(descent_percentages)
+```
+
+#### Bar Chart
+Bar chart of descent code and arrests
+```{r}
+library(ggplot2)
+
+ggplot(descent_percentages, aes(x = descent_code, y = percent, fill = as.factor(year))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Descent Code Percentages by Year",
+       x = "Descent Code", y = "Percent of Arrests") +
+  theme_minimal()
+```
+
+#### Count (%) Table
+Another table for descent code, but with Descent code as the rows
+```{r}
+# 1. Create a table with both count and percent
+descent_summary <- descent_percentages %>%
+  mutate(label = glue("{count} ({percent}%)")) %>%
+  select(year, descent_code, label)
+
+# 2. Pivot to wider format
+descent_wide_combined <- descent_summary %>%
+  pivot_wider(names_from = year, values_from = label)
+
+# 3. Display table
+knitr::kable(
+  descent_wide_combined,
+  caption = "Arrests by Descent Code and Year (Count and Percentage)"
+)
+```
+
+#### Time-Series
+
+Time-series of arrest count by descent code
+```{r}
+# Descent code colors
+custom_colors <- c(
+  "H" = "darkred",            # Hispanic
+  "B" = "black",           # Black
+  "W" = "navy",          # White
+  "A" = "purple",         # Other Asian
+  "O" = "darkgreen",      # Other
+  "C" = "orange",         # Chinese
+  "F" = "pink",           # Filipino
+  "I" = "brown",          # American Indian
+  "K" = "darkgoldenrod",  # Korean
+  "X" = "gray50"          # Unknown
+)
+
+# Descent code labels for legend
+descent_labels <- c(
+  "H" = "Hispanic",
+  "B" = "Black",
+  "W" = "White",
+  "A" = "Other Asian",
+  "O" = "Other",
+  "C" = "Chinese",
+  "F" = "Filipino",
+  "I" = "American Indian",
+  "K" = "Korean",
+  "X" = "Unknown"
+)
+
+# Plot
+ggplot(descent_percentages, aes(x = year, y = count, 
+                                 color = descent_code,
+                                 linetype = descent_code,
+                                 shape = descent_code)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = custom_colors, labels = descent_labels) +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted", "dotdash", 
+                                   "twodash", "longdash", "solid", "dashed", 
+                                   "dotted", "dotdash"),
+                        labels = descent_labels) +
+  scale_shape_manual(values = c(16, 17, 15, 3, 7, 8, 4, 1, 2, 0),
+                     labels = descent_labels) +
+  labs(title = "Arrest Counts by Descent Code Over Time",
+       x = "Year", y = "Number of Arrests",
+       color = "Descent Code",
+       linetype = "Descent Code",
+       shape = "Descent Code") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "right",
+        panel.grid.minor = element_blank())
+```
+
+#### Stacked Bar Plot
+
+Stacked Bar Plot of Percentages by Year
+Shows: the proportion of arrests by descent code over time.
+```{r}
+ggplot(descent_percentages, aes(x = factor(year), y = count, fill = descent_code)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = custom_colors, labels = descent_labels) +
+  labs(title = "Descent Code Arrest Counts by Year",
+       x = "Year", y = "Number of Arrests", fill = "Descent Code") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "right")
+```
+#### Stacked Percent Bar Chart
+```{r}
+# Ensure every (year x descent_code) combo exists; compute % per year
+descent_pct_for_plot <- LA_crime_clean %>%
+  count(year, descent_code, name = "count") %>%
+  group_by(year) %>%
+  mutate(percent = 100 * count / sum(count)) %>%
+  ungroup() %>%
+  tidyr::complete(
+    year,
+    descent_code,
+    fill = list(count = 0, percent = 0)
+  )
+
+# (Optional) order legend by total count across all years
+descent_order <- descent_pct_for_plot %>%
+  group_by(descent_code) %>%
+  summarise(total = sum(count), .groups = "drop") %>%
+  arrange(desc(total)) %>%
+  pull(descent_code)
+
+descent_pct_for_plot$descent_code <- factor(descent_pct_for_plot$descent_code,
+                                            levels = descent_order)
+
+# Plot stacked percent bar chart
+ggplot(descent_pct_for_plot,
+       aes(x = factor(year), y = percent, fill = descent_code)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = custom_colors, labels = descent_labels) +
+  labs(title = "Descent Code Arrest Percentages by Year",
+       x = "Year", y = "Percent of Arrests", fill = "Descent Code") +
+  theme_minimal(base_size = 13)
+
+```
+
+## Sex code
+
+Review what sex codes are included
+```{r}
+unique(LA_crime_clean$sex_code)
+```
+
+#### Count (%) Table
+Counts and percentages by sex per year
+```{r}
+# Count per sex_code per year
+sex_counts <- LA_crime_clean %>%
+  group_by(year, sex_code) %>%
+  summarise(count = n(), .groups = "drop")
+
+# Total arrests per year already exists: `yearly_totals`
+
+# Join and calculate percentage
+sex_percentages <- sex_counts %>%
+  left_join(yearly_totals, by = "year") %>%
+  mutate(percent = round(100 * count / total_arrests, 2))
+
+# View the result
+knitr::kable(sex_percentages)
+```
+
+#### Table: Sex as Rows
+Table with sex as rows, years as columns
+```{r}
+# Create table with label
+sex_summary <- sex_percentages %>%
+  mutate(label = glue("{count} ({percent}%)")) %>%
+  select(year, sex_code, label)
+
+# Pivot wider: sex_code as rows
+sex_wide <- sex_summary %>%
+  pivot_wider(names_from = year, values_from = label)
+
+# Display table
+knitr::kable(sex_wide, caption = "Arrests by Sex and Year (Count and Percentage)")
+```
+
+Set colours for sex analyses
+```{r}
+#Set Colours
+sex_colors <- c(
+  "M" = "#002952",           # Male = Navy blue
+  "F" = "#9DC183"        # Female = Sage green
+)
+```
+
+#### Time-Series
+Time-series line chart of arrest counts
+```{r}
+ggplot(sex_percentages, aes(x = year, y = count, 
+                            color = sex_code,
+                            linetype = sex_code,
+                            shape = sex_code)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("M" = "#002952", "F" = "#9DC183"),
+                     labels = c("M" = "Male", "F" = "Female", "X" = "Unknown")) +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted"),
+                        labels = c("M" = "Male", "F" = "Female", "X" = "Unknown")) +
+  scale_shape_manual(values = c(16, 17, 15),
+                     labels = c("M" = "Male", "F" = "Female", "X" = "Unknown")) +
+  labs(title = "Arrest Counts by Sex Over Time",
+       x = "Year", y = "Number of Arrests",
+       color = "Sex", linetype = "Sex", shape = "Sex") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "right",
+        panel.grid.minor = element_blank())
+```
+
+#### Stacked Bar Chart: Counts
+Stacked Bar Chart of Arrest Counts by Sex and Year
+```{r}
+#Plot the bar chart
+ggplot(sex_percentages, aes(x = factor(year), y = count, fill = sex_code)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = sex_colors,
+                    labels = c("M" = "Male", "F" = "Female")) +
+  labs(title = "Arrest Counts by Sex and Year",
+       x = "Year", y = "Number of Arrests", fill = "Sex") +
+  theme_minimal(base_size = 13)
+```
+
+#### Stacked Bar chart: %
+Stacked bar chart of percentages (%)
+```{r}
+#Make the stacked bar chart of sex arrest percentages by year
+ggplot(sex_percentages, aes(x = factor(year), y = percent, fill = sex_code)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = sex_colors,
+                    labels = c("M" = "Male", "F" = "Female", "X" = "Unknown")) +
+  labs(title = "Sex Arrest Percentages by Year",
+       x = "Year", y = "Percent of Arrests", fill = "Sex") +
+  theme_minimal(base_size = 13)
+
+```
+
+#### Violin Plot 1: Age and Sex (All, B, H, and W)
+Violin Plot of Age Distribution by Descent Code (All, Black, Hispanic, and White)
+This will help assess whether certain groups are disproportionately younger or older when arrested for street vending.
+```{r}
+# Filter for Black, Hispanic, White, and All
+LA_crime_age <- LA_crime_clean %>%
+  filter(!is.na(age)) %>%
+  mutate(group = case_when(
+    descent_code == "H" ~ "Hispanic",
+    descent_code == "B" ~ "Black",
+    descent_code == "W" ~ "White",
+    TRUE ~ "Other"
+  ))
+
+# Add combined group "All"
+LA_crime_age_all <- LA_crime_age %>%
+  mutate(group = "All") %>%
+  select(age, group)
+
+# Combine for plotting
+plot_data <- LA_crime_age %>%
+  filter(group %in% c("Hispanic", "Black", "White")) %>%
+  select(age, group) %>%
+  bind_rows(LA_crime_age_all)
+
+# Colors for groups
+age_colors <- c(
+  "Hispanic" = "darkred",
+  "Black"    = "black",
+  "White"    = "navy",
+  "All"      = "grey"
+)
+
+# Plot
+ggplot(plot_data, aes(x = group, y = age, fill = group)) +
+  geom_violin(alpha = 0.6, trim = FALSE) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.8) +
+  scale_fill_manual(values = age_colors) +
+  labs(title = "Age Distribution of Street Vendor Arrests",
+       x = "Group", y = "Age at Arrest") +
+  theme_minimal(base_size = 13)
+```
+
+#### Violin Plot 2: Age and Sex (B, H, and White)
+Violin Plot of Age Distribution by Descent Code (Black, Hispanic, and White)
+This will help assess whether certain groups are disproportionately younger or older when arrested for street vending.
+```{r}
+# Filter for Black, Hispanic, White
+LA_crime_age <- LA_crime_clean %>%
+  filter(!is.na(age)) %>%
+  mutate(group = case_when(
+    descent_code == "H" ~ "Hispanic",
+    descent_code == "B" ~ "Black",
+    descent_code == "W" ~ "White",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(group))   # keep only the 3 groups
+
+# Set colors
+age_colors <- c(
+  "Hispanic" = "darkred",
+  "Black" = "black",
+  "White" = "navy"
+)
+
+# Plot
+ggplot(LA_crime_age, aes(x = group, y = age, fill = group)) +
+  geom_violin(alpha = 0.6, trim = FALSE) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.8) +
+  scale_fill_manual(values = age_colors) +
+  labs(title = "Age Distribution of Street Vendor Arrests",
+       x = "Group", y = "Age at Arrest") +
+  theme_minimal(base_size = 13)
+
+```
+
+
+#### Statistical Test for Age Differences
+Kruskal-Wallis test to see if age differs significantly between Hispanic, Black, and White street vendor arrests.
+```{r}
+kruskal.test(age ~ group, data = LA_crime_age)
+```
+Interpretation:
+There is strong statistical evidence that the age distributions of individuals arrested for street vending differ significantly across the three groups (Hispanic, Black, and White; p-value < 2.2e-16).
+
+
+# Data Analysis
+
+## Summary statistics
+
+### 1. Total Arrests Per Year
+
+Purpose: Understand volume changes over time.
+```{r}
+yearly_totals %>%
+  arrange(year) %>%
+  mutate(change = total_arrests - lag(total_arrests),
+         pct_change = round(100 * change / lag(total_arrests), 1)) %>%
+  knitr::kable(caption = "Total Arrests per Year and Year-over-Year Change")
+
+```
+
+
+### 2. Descent Code Trends: Which Groups Grew or Shrunk?
+Purpose: Assess which descent codes increased/decreased in arrests.
+```{r}
+# Year-over-year change by descent code
+descent_trends <- descent_counts %>%
+  arrange(descent_code, year) %>%
+  group_by(descent_code) %>%
+  mutate(change = count - lag(count),
+         pct_change = round(100 * change / lag(count), 1))
+
+knitr::kable(descent_trends, caption = "Year-over-Year Change in Arrests by Descent Code")
+```
+
+### 3. Sex-Based Arrest Changes Over Time
+```{r}
+sex_trends <- sex_counts %>%
+  arrange(sex_code, year) %>%
+  group_by(sex_code) %>%
+  mutate(change = count - lag(count),
+         pct_change = round(100 * change / lag(count), 1))
+
+knitr::kable(sex_trends, caption = "Year-over-Year Change in Arrests by Sex")
+```
+
+### 4. Overall Summary Stats for Counts (mean, sd, min, max)
+Purpose: Numeric summary across years
+```{r}
+# Summary stats per descent code
+descent_counts %>%
+  group_by(descent_code) %>%
+  summarise(
+    mean = round(mean(count), 1),
+    sd = round(sd(count), 1),
+    min = min(count),
+    max = max(count),
+    .groups = "drop"
+  ) %>%
+  knitr::kable(caption = "Summary Statistics for Arrest Counts by Descent Code")
+```
+
+### 5. Proportional Share of Arrests by Descent Code Over Time
+Purpose: Who is over-represented? Who is becoming more/less dominant in share?
+```{r}
+# Already done as `descent_percentages`, but summarize min/max share:
+descent_percentages %>%
+  group_by(descent_code) %>%
+  summarise(min_pct = min(percent),
+            max_pct = max(percent),
+            range_pct = max_pct - min_pct) %>%
+  arrange(desc(range_pct)) %>%
+  knitr::kable(caption = "Range of Percent Share of Arrests by Descent Code Over Time")
+
+```
+
+
+### 6. Boxplot of Descent Code Counts Per Year
+This shows how arrest counts vary across descent codes each year.
+```{r}
+ggplot(descent_counts, aes(x = factor(year), y = count)) +
+  geom_boxplot(fill = "lightblue", outlier.color = "red", outlier.shape = 16) +
+  labs(title = "Distribution of Arrest Counts Across Descent Codes by Year",
+       x = "Year", y = "Arrest Count per Descent Code") +
+  theme_minimal(base_size = 13)
+
+```
+
+### 6.A Boxplot of B, W, H, Descent Code Counts Per Year
+```{r}
+# Summarise yearly totals for each descent code
+descent_yearly_totals <- descent_counts %>%
+  filter(descent_code %in% c("B", "H", "W"))
+
+# Boxplot + jittered points
+ggplot(descent_yearly_totals, aes(x = descent_code, y = count, fill = descent_code)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+  geom_jitter(width = 0.15, size = 2, alpha = 0.8) +
+  scale_fill_manual(
+    values = c("B" = "black", "H" = "darkred", "W" = "navy"),
+    labels = c("B" = "Black", "H" = "Hispanic", "W" = "White")
+  ) +
+  labs(
+    title = "Distribution of Yearly Arrest Counts by Descent Code",
+    x = "Descent Code",
+    y = "Number of Arrests",
+    fill = "Descent Code"
+  ) +
+  scale_x_discrete(labels = c("B" = "Black", "H" = "Hispanic", "W" = "White")) +
+  theme_minimal(base_size = 13)
+
+```
+
+## Pre vs Post policy implementation
+I know that strete vending was finally decriminalized in 2017 (https://antidisplacement.org/profile/los-angeles-california-2/), but was there a date for more informal policies that were in place? 
+Like 2013 or 2014?
+
+"By 2013, LASVC was working with two city council members" to stop street vendor arrests" (https://pmc.ncbi.nlm.nih.gov/articles/PMC9008393/ - from Professor Hidalgo)
+
+### T-test
+
+Prepare data for t-test
+```{r}
+# Aggregate to monthly totals
+monthly_arrests <- LA_crime_clean %>%
+  mutate(month = floor_date(as.Date(arrest_date), unit = "month")) %>%
+  group_by(month) %>%
+  summarise(arrest_count = n(), .groups = "drop") %>%
+  mutate(period = ifelse(year(month) < 2013, "2010-2013", "2014-2018"),
+         period = factor(period, levels = c("2010-2013", "2014-2018")))
+```
+
+Double-check that t-test asusmptions are met
+```{r}
+# Visual check of assumptions
+
+#a. Histogram (normality)
+ggplot(monthly_arrests, aes(x = arrest_count, fill = period)) +
+  geom_histogram(binwidth = 10, alpha = 0.7, position = "identity") +
+  facet_wrap(~ period) +
+  labs(title = "Histogram of Monthly Street Vendor Arrests",
+       x = "Arrest Count", y = "Frequency") +
+  theme_minimal()
+
+#b. Boxplot
+ggplot(monthly_arrests, aes(x = period, y = arrest_count, fill = period)) +
+  geom_boxplot(alpha = 0.8) +
+  labs(title = "Monthly Arrests Before and After 2013",
+       x = "Period", y = "Monthly Arrest Count") +
+  theme_minimal()
+
+#c. QQ-plots (normality by group)
+ggqqplot(subset(monthly_arrests, period == "2010-2013")$arrest_count, title = "QQ Plot - 2010-2013")
+ggqqplot(subset(monthly_arrests, period == "2014-2018")$arrest_count, title = "QQ Plot - 2014-2018")
+
+
+#d. Variance test (for Welch decision)
+var.test(arrest_count ~ period, data = monthly_arrests)
+```
+
+After checking the t-test assumptions:
+- Histogram & boxplot clearly show lower arrests post-2014, with greater variability.
+- QQ plots show some skew in the 2014+ group — again supporting Welch’s t-test due to non-normality and unequal variance.
+--> So, I will use a Welch's Two-Sample t-test
+
+
+Welch’s Two-Sample t-test:
+```{r}
+t.test(arrest_count ~ period, data = monthly_arrests, var.equal = FALSE)
+```
+
+Interpretation: 
+There is strong statistical evidence (p-value = 1.205e-09) that monthly arrests of street vendors significantly declined after 2013. 
+On average, there were 69 fewer arrests per month after 2014 compared to the period before 2013, with a 95% confidence interval ranging from about 49 to 90 fewer arrests per month. 
+This drop aligns with informal policy shifts and advocacy efforts to decriminalize street vending in Los Angeles, even prior to formal legalization in 2017.
